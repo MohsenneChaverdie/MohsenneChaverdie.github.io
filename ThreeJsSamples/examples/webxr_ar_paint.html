@@ -1,145 +1,232 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<title>three.js ar - paint</title>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-		<link type="text/css" rel="stylesheet" href="main.css">
-	</head>
-	<body>
+<head>
+	<title>three.js ar - paint</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+	<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
 
-		<div id="info">
-			<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> ar - paint<br/>(Chrome Android 81+)
-		</div>
+<div id="info">
+	<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> ar - paint<br/>(Chrome Android 81+)
+</div>
 
-		<script type="module">
+<script type="module">
 
-			import * as THREE from '../build/three.module.js';
-			import { TubePainter } from './jsm/misc/TubePainter.js';
-			import { ARButton } from './jsm/webxr/ARButton.js';
+	import * as THREE from '../build/three.module.js';
+	import { TubePainter } from './jsm/misc/TubePainter.js';
+	import { ARButton } from './jsm/webxr/ARButton.js';
 
-			var container;
-			var camera, scene, renderer;
-			var controller, painter;
+	var container;
+	var camera, scene, renderer;
+	var controller, painter;
 
-			var cursor = new THREE.Vector3();
+	var reticle;
 
-			init();
-			animate();
+	var hitTestSource = null;
+	var hitTestSourceRequested = false;
 
-			function init() {
+	var cursor = new THREE.Vector3();
 
-				container = document.createElement( 'div' );
-				document.body.appendChild( container );
+	init();
+	animate();
 
-				scene = new THREE.Scene();
+	function init() {
 
-				camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 20 );
+		container = document.createElement( 'div' );
+		document.body.appendChild( container );
 
-				//
+		scene = new THREE.Scene();
 
-				renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
-				renderer.setPixelRatio( window.devicePixelRatio );
-				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.xr.enabled = true;
-				container.appendChild( renderer.domElement );
+		camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 20 );
 
-				//
+		//
 
-				document.body.appendChild( ARButton.createButton( renderer ) );
+		renderer = new THREE.WebGLRenderer( { antialias: true, alpha: true } );
+		renderer.setPixelRatio( window.devicePixelRatio );
+		renderer.setSize( window.innerWidth, window.innerHeight );
+		renderer.xr.enabled = true;
+		container.appendChild( renderer.domElement );
 
-				// model
+		//
 
-				var light = new THREE.HemisphereLight( 0xffffff, 0xbbbbff, 1 );
-				light.position.set( 0, 1, 0 );
-				scene.add( light );
+		// document.body.appendChild( ARButton.createButton( renderer ) );
+		document.body.appendChild( ARButton.createButton( renderer, { requiredFeatures: [ 'hit-test' ] } ) );
 
-				//
+		// model
 
-				painter = new TubePainter();
-				painter.setSize( 0.4 );
-				painter.mesh.material.side = THREE.DoubleSide;
-				scene.add( painter.mesh );
+		var light = new THREE.HemisphereLight( 0xffffff, 0xbbbbff, 1 );
+		light.position.set( 0, 1, 0 );
+		scene.add( light );
 
-				//
+		//
 
-				function onSelectStart() {
+		// Reticle
 
-					this.userData.isSelecting = true;
-					this.userData.skipFrames = 2;
+		var geometry = new THREE.CylinderBufferGeometry( 0.1, 0.1, 0.2, 32 ).translate( 0, 0.1, 0 );
+
+		function onSelect() {
+
+			if ( reticle.visible ) {
+
+				var material = new THREE.MeshPhongMaterial( { color: 0xffffff * Math.random() } );
+				var mesh = new THREE.Mesh( geometry, material );
+				mesh.position.setFromMatrixPosition( reticle.matrix );
+				mesh.scale.y = Math.random() * 2 + 1;
+				scene.add( mesh );
+
+			}
+
+		}
+
+		controller = renderer.xr.getController( 0 );
+		controller.addEventListener( 'select', onSelect );
+		scene.add( controller );
+
+		reticle = new THREE.Mesh(
+			new THREE.RingBufferGeometry( 0.15, 0.2, 32 ).rotateX( - Math.PI / 2 ),
+			new THREE.MeshBasicMaterial()
+		);
+		reticle.matrixAutoUpdate = false;
+		reticle.visible = false;
+		scene.add( reticle );
+		//
+
+
+		painter = new TubePainter();
+		painter.setSize( 0.1 );
+		painter.mesh.material.side = THREE.DoubleSide;
+		scene.add( painter.mesh );
+
+		//
+
+		function onSelectStart() {
+
+			this.userData.isSelecting = true;
+			this.userData.skipFrames = 2;
+
+		}
+
+		function onSelectEnd() {
+
+			this.userData.isSelecting = false;
+
+		}
+
+		controller = renderer.xr.getController( 0 );
+		controller.addEventListener( 'selectstart', onSelectStart );
+		controller.addEventListener( 'selectend', onSelectEnd );
+		controller.userData.skipFrames = 0;
+		scene.add( controller );
+
+		//
+
+		window.addEventListener( 'resize', onWindowResize, false );
+
+	}
+
+	function onWindowResize() {
+
+		camera.aspect = window.innerWidth / window.innerHeight;
+		camera.updateProjectionMatrix();
+
+		renderer.setSize( window.innerWidth, window.innerHeight );
+
+	}
+
+	//
+
+	function handleController( controller ) {
+
+		var userData = controller.userData;
+
+		cursor.set( 0, 0, - 0.2 ).applyMatrix4( controller.matrixWorld );
+
+		if ( userData.isSelecting === true ) {
+
+			if ( userData.skipFrames >= 0 ) {
+
+				// TODO(mrdoob) Revisit this
+
+				userData.skipFrames --;
+
+				painter.moveTo( cursor );
+
+			} else {
+
+				painter.lineTo( cursor );
+				painter.update();
+
+			}
+
+		}
+
+	}
+
+	function animate() {
+
+		renderer.setAnimationLoop( render );
+
+	}
+
+	function render( timestamp, frame ) {
+
+		if ( frame ) {
+
+			var referenceSpace = renderer.xr.getReferenceSpace();
+			var session = renderer.xr.getSession();
+
+			if ( hitTestSourceRequested === false ) {
+
+				session.requestReferenceSpace( 'viewer' ).then( function ( referenceSpace ) {
+
+					session.requestHitTestSource( { space: referenceSpace } ).then( function ( source ) {
+
+						hitTestSource = source;
+
+					} );
+
+				} );
+
+				session.addEventListener( 'end', function () {
+
+					hitTestSourceRequested = false;
+					hitTestSource = null;
+
+				} );
+
+				hitTestSourceRequested = true;
+
+			}
+
+			if ( hitTestSource ) {
+
+				var hitTestResults = frame.getHitTestResults( hitTestSource );
+
+				if ( hitTestResults.length ) {
+
+					var hit = hitTestResults[ 0 ];
+
+					reticle.visible = true;
+					reticle.matrix.fromArray( hit.getPose( referenceSpace ).transform.matrix );
+
+				} else {
+
+					reticle.visible = false;
 
 				}
 
-				function onSelectEnd() {
-
-					this.userData.isSelecting = false;
-
-				}
-
-				controller = renderer.xr.getController( 0 );
-				controller.addEventListener( 'selectstart', onSelectStart );
-				controller.addEventListener( 'selectend', onSelectEnd );
-				controller.userData.skipFrames = 0;
-				scene.add( controller );
-
-				//
-
-				window.addEventListener( 'resize', onWindowResize, false );
-
 			}
 
-			function onWindowResize() {
+		}
 
-				camera.aspect = window.innerWidth / window.innerHeight;
-				camera.updateProjectionMatrix();
 
-				renderer.setSize( window.innerWidth, window.innerHeight );
+		handleController( controller );
+		renderer.render( scene, camera );
 
-			}
+	}
 
-			//
-
-			function handleController( controller ) {
-
-				var userData = controller.userData;
-
-				cursor.set( 0, 0, - 0.2 ).applyMatrix4( controller.matrixWorld );
-
-				if ( userData.isSelecting === true ) {
-
-					if ( userData.skipFrames >= 0 ) {
-
-						// TODO(mrdoob) Revisit this
-
-						userData.skipFrames --;
-
-						painter.moveTo( cursor );
-
-					} else {
-
-						painter.lineTo( cursor );
-						painter.update();
-
-					}
-
-				}
-
-			}
-
-			function animate() {
-
-				renderer.setAnimationLoop( render );
-
-			}
-
-			function render() {
-
-				handleController( controller );
-
-				renderer.render( scene, camera );
-
-			}
-
-		</script>
-	</body>
+</script>
+</body>
 </html>
