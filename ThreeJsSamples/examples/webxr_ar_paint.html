@@ -80,10 +80,6 @@
 
 		}
 
-		controller = renderer.xr.getController( 0 );
-		controller.addEventListener( 'select', onSelect );
-		scene.add( controller );
-
 		reticle = new THREE.Mesh(
 			new THREE.RingBufferGeometry( 0.15, 0.2, 32 ).rotateX( - Math.PI / 2 ),
 			new THREE.MeshBasicMaterial()
@@ -99,7 +95,7 @@
 		painter.mesh.material.side = THREE.DoubleSide;
 		scene.add( painter.mesh );
 
-		//
+
 
 		function onSelectStart() {
 
@@ -115,6 +111,7 @@
 		}
 
 		controller = renderer.xr.getController( 0 );
+		controller.addEventListener( 'select', onSelect );
 		controller.addEventListener( 'selectstart', onSelectStart );
 		controller.addEventListener( 'selectend', onSelectEnd );
 		controller.userData.skipFrames = 0;
